@@ -228,4 +228,98 @@ plot2 = rmse_df %>%
     labs(title = "Comparisions of three models", y="RMSE value", x = "Models") 
 plot2
 ```
-* From the plot, we can observe that `my_model` has greater RMSE than the other two models, and `model2` has smaller RMSE than `model1`. The results peove that prediction accuracy of `model2` is higher than the other two. The prediction accuracy of `my_model` is too low to be a good linear model. ter than `model1`. I would recommand use `model2` for  hypothetical analysis, or find a better model with higher prediction accuracy.
+From the plot, we can observe that `my_model` has greater RMSE than the other two models, and `model2` has smaller RMSE than `model1`. The results peove that prediction accuracy of `model2` is higher than the other two. The prediction accuracy of `my_model` is too low to be a good linear model. ter than `model1`. I would recommand use `model2` for  hypothetical analysis, or find a better model with higher prediction accuracy.
+
+## Problem 3
+**import data**
+```{r}
+weather_df = 
+  rnoaa::meteo_pull_monitors(
+    c("USW00094728"),
+    var = c("PRCP", "TMIN", "TMAX"), 
+    date_min = "2017-01-01",
+    date_max = "2017-12-31") %>%
+  mutate(
+    name = recode(id, USW00094728 = "CentralPark_NY"),
+    tmin = tmin / 10,
+    tmax = tmax / 10) %>%
+  select(name, id, everything())
+```
+**bootstrapping**
+* use bootstrap to get repeated sampling framework  
+* focus on a simple linear regression with tmax as the response and tmin as the predictor
+
+```{r}
+bootstrap_weather = 
+  weather_df %>%
+  bootstrap(n = 5000) %>%
+  mutate(
+    models = map(.x = strap, ~lm(tmax ~ tmin, data = .x)),
+    results = map(models, broom::glance),
+    results2 = map(models, broom::tidy)) %>% 
+  select(-strap, -models) %>% 
+  unnest(results, results2) %>% 
+  select(.id, term, r.squared,estimate) %>% 
+  mutate(
+    term = str_replace(term, "\\(", ""),
+    term = str_replace(term, "\\)", "")
+  )
+bootstrap_weather
+```
+
+
+```{r}
+bootstrap_weather2 = bootstrap_weather %>% 
+  pivot_wider(
+    names_from = term,
+    values_from = estimate
+  ) %>%
+  mutate(log = log(tmin * Intercept, base = exp(1))) %>%
+  select(r.squared, log)
+
+bootstrap_weather2
+```
+
+**Construct bootstrap CI for r squared and log(β0*β1)**
+
+```{r}
+bootstrap_weather2 %>% 
+  summarize(
+    r_ci_lower = quantile(r.squared, 0.025),
+    r_ci_upper = quantile(r.squared, 0.975)
+  ) %>% 
+  knitr::kable(caption = "95% CI for r square")
+```
+
+```{r}
+bootstrap_weather2 %>% 
+  summarize(
+    log_ci_lower = quantile(log, 0.025),
+    log_ci_upper = quantile(log, 0.975)
+  ) %>% 
+  knitr::kable(caption = "95% CI for r square")
+```
+
+
+**Ditribution of r squared and log(β0*β1)**
+
+```{r}
+plot3 = bootstrap_weather2 %>% 
+  ggplot(aes(x = r.squared)) +
+    geom_density(alpha = 0.5, fill = "pink", color = "black" ) +
+    labs(title = "Distribution of r.squared", x="r.squared", y="Density") 
+plot3
+```
+
+* The plot shows the distribution of r_squared. It looks like normal distribution. But We can observe a left tail. What is more, the curve is not as smooth as normal distribution, especially in the left part. The mean of r_squared is `r round(mean(pull(bootstrap_weather2, r.squared)),2)` and the standard deviation is `r round(sd(pull(bootstrap_weather2, r.squared)),2)`.
+
+```{r}
+plot4 = bootstrap_weather2 %>% 
+  ggplot(aes(x = log)) +
+    geom_density(alpha = 0.5, fill = "pink", color = "black" ) +
+    labs(title = "Distribution of log(β0*β1)", x="log(β0*β1)", y="Density") 
+plot4
+```
+
+* This curve also look like normal distribution. But it has a more flat peak than usual normal distibution and two long tails on both sides. The mean is `r round(mean(pull(bootstrap_weather2, log)),6)`, and the statdard deviation is `r round(sd(pull(bootstrap_weather2, log)),6)`
+
